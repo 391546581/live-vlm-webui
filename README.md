@@ -55,7 +55,7 @@ live-vlm-webui
 - ✅ Linux PC (x86_64)
 - ✅ DGX Spark (ARM64)
 - ✅ macOS (Apple Silicon)
-- ✅ Windows (via WSL2) - need to run Ollma on WSL. See [Windows WSL Setup Guide](./docs/usage/windows-wsl.md)
+- Windows: native setup below, or [Windows WSL Setup Guide](./docs/usage/windows-wsl.md).
 - ⚠️ **Jetson (Orin, Thor)** - pip works but Docker is simpler. See [Jetson Quick Start](#-jetson-quick-start) below
 
 ---
@@ -290,7 +290,36 @@ pip install -e .
 - ✅ Jetson Thor - fully tested
 - ✅ Jetson Orin - fully tested
 - ✅ macOS (Apple Silicon) - fully tested
-- ⚠️ Windows - WSL2 recommended, native Windows requires additional setup (FFmpeg, build tools)
+- Windows - native Python 3.12 setup below; other Python versions and RTSP sources require separate validation.
+
+### Native Windows setup
+
+Use 64-bit Python 3.12 and a dedicated virtual environment. Run these commands in
+PowerShell from the repository directory:
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .
+.\.venv\Scripts\live-vlm-webui.exe --host 127.0.0.1 --api-base http://127.0.0.1:11434/v1 --model qwen2.5vl:7b
+```
+
+Start Windows Ollama first and use an installed vision model. Open
+`https://localhost:8090`, accept the local self-signed certificate warning, and
+allow camera access. Windows generates certificates with Python `cryptography`,
+without requiring `openssl.exe`; Linux and macOS keep their OpenSSL workflow.
+The certificate is not installed into the Windows trust store.
+
+For subsequent launches, `.\scripts\start_windows.ps1` uses the repository's
+virtual environment, bypasses proxies for localhost, and binds only to
+`127.0.0.1`. Set `-Model` or `-Port` as needed.
+
+For same-device use without certificate prompts, add `--localhost-http` and open
+`http://localhost:8090`. Modern browsers allow camera access on localhost HTTP.
+The PowerShell launcher accepts `-LocalhostHttp` for this mode.
+Keep the server bound to loopback unless remote access is explicitly required.
+Prebuilt PyAV/aiortc wheels supply the media libraries on supported Python
+versions; separate FFmpeg/build tools are needed only if dependencies must be
+built from source.
 
 > [!TIP]
 > For Jetson, we recommend Docker for production use. Source installation works but requires:
