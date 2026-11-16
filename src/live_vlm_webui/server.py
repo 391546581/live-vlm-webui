@@ -29,6 +29,7 @@ import subprocess
 import sys
 import uuid
 from collections import defaultdict
+from pathlib import Path
 
 import aiohttp
 from aiohttp import web
@@ -226,7 +227,9 @@ async def detect_local_service_and_model():
 
 async def index(request):
     """Serve the main HTML page"""
-    content = open(os.path.join(os.path.dirname(__file__), "static", "index.html"), "r").read()
+    content = await asyncio.to_thread(
+        (Path(__file__).parent / "static" / "index.html").read_text, encoding="utf-8"
+    )
     return web.Response(content_type="text/html", text=content)
 
 
@@ -1015,6 +1018,8 @@ def generate_self_signed_cert(cert_path="cert.pem", key_path="key.pem"):
 
     logger.info("🔐 Generating self-signed SSL certificate...")
     logger.info(f"   Saving to: {os.path.dirname(os.path.abspath(cert_path)) or '.'}")
+    if sys.platform == "win32":
+        return generate_windows_self_signed_cert(cert_path, key_path)
     try:
         subprocess.run(
             [
@@ -1047,6 +1052,55 @@ def generate_self_signed_cert(cert_path="cert.pem", key_path="key.pem"):
     except subprocess.CalledProcessError as e:
         logger.warning(f"⚠️  Failed to generate certificates: {e}")
         return False
+
+
+def generate_windows_self_signed_cert(cert_path, key_path):
+    """Generate localhost TLS credentials without an external OpenSSL executable."""
+    from datetime import datetime, timedelta, timezone
+    from pathlib import Path
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=4096)
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
+    now = datetime.now(timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=5))
+        .not_valid_after(now + timedelta(days=365))
+        .add_extension(
+            x509.SubjectAlternativeName(
+                [
+                    x509.DNSName("localhost"),
+                    x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
+                    x509.IPAddress(ipaddress.ip_address("::1")),
+                ]
+            ),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    try:
+        Path(key_path).write_bytes(
+            key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            )
+        )
+        Path(cert_path).write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    except OSError as e:
+        logger.error("Failed to write SSL credentials: %s", e)
+        return False
+    logger.info("Generated %s and %s using cryptography", cert_path, key_path)
+    return True
 
 
 def main():
